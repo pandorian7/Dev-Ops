@@ -2,6 +2,7 @@
 
   import { dataFromFormSubmitEvent } from "$lib/client";
   import { auth } from "$lib/api";
+  import { goto } from "$app/navigation";
 
   async function handleSignUp(submitEvent: SubmitEvent) {
     submitEvent.preventDefault();
@@ -13,6 +14,7 @@
     try {
       await auth.login(data.username, data.password);
       alert("Sign In Successful!");
+      goto("/dashboard");
     } catch (err: any) {
       if (err.response && err.response.data?.message) {
         alert(err.response.data.message);

@@ -1,11 +1,14 @@
 import express from "express";
 import mongoose from "mongoose";
+import cookieParser from "cookie-parser";
 
 import User from "./models/User";
+import { encode } from "./token";
 
 const app = express();
 
 app.use(express.json());
+app.use(cookieParser());
 
 const port = 3000;
 const MONGO_URI = "mongodb://mongo:27017/soundify"
@@ -27,6 +30,8 @@ app.post("/register", async (req, res) => {
   try {
     const newUser = new User({ username, password });
     await newUser.save();
+    const token = encode({username});
+    res.cookie("token", token);
     return res.status(201).json({ message: "User created successfully" });
   } catch (err: any) {
     if (err.code === 11000) {
@@ -54,12 +59,14 @@ app.post("/login", async (req, res) => {
       return res.status(401).json({ message: "Invalid username or password" });
     }
 
+    const token = encode({username});
+    res.cookie("token", token);
+
     return res.status(200).json({ message: "Login successful" });
   } catch (err: any) {
     return res.status(500).json({ message: "Internal server error" });
   }
 });
-
 
 app.listen(port, () => {
   console.log(`Server running at http://localhost:${port}`);

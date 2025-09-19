@@ -16,6 +16,7 @@ services:
 
     environment:
       - NODE_ENV=development
+      - JWT_SECRET=${JWT_SECRET}
 
     ports:
       - "3000:3000"
@@ -30,6 +31,7 @@ services:
 
     environment:
       - NODE_ENV=development
+      - JWT_SECRET=${JWT_SECRET}
 
     ports:
       - "4000:5173"

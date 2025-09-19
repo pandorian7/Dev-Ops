@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { goto } from "$app/navigation";
   import { auth } from "$lib/api";
   import { dataFromFormSubmitEvent } from "$lib/client";
 
@@ -17,6 +18,7 @@
     try {
       await auth.register(data.username, data.password);
       alert("User Creation Successful!");
+      goto("/dashboard");
     } catch (err: any) {
       if (err.response && err.response.data?.message) {
         alert(err.response.data.message);
