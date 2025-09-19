@@ -1,0 +1,36 @@
+services:
+
+  mongo:
+    image: mongo
+    restart: always
+    # ports:
+    #   - 27017
+    volumes:
+      - spotube-mongo:/data/db
+
+  backend:
+    build: ./backend
+    # ports:
+    #   - 3000
+
+  frontend:
+    build: 
+      context: ./frontend
+      args:
+        - BACKEND_URL=http://backend:3000/
+        - JWT_SECRET=${JWT_SECRET}
+    # ports:
+    #   - 3000
+
+  nginx:
+    image: nginx:stable-alpine
+    ports:
+      - "8081:80"
+    volumes:
+      - ./nginx/prod:/etc/nginx/conf.d:ro
+    depends_on:
+      - frontend
+      - backend
+
+volumes:
+  spotube-mongo:

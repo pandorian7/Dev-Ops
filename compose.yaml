@@ -1,0 +1,51 @@
+services:
+  mongo:
+    image: mongo
+    restart: always
+    ports:
+      - "27017:27017"
+    volumes:
+      - spotube-mongo:/data/db
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+
+    volumes:
+      - ./backend:/app
+
+    environment:
+      - NODE_ENV=development
+
+    ports:
+      - "3000:3000"
+    
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+
+    volumes:
+      - ./frontend:/app
+
+    environment:
+      - NODE_ENV=development
+
+    ports:
+      - "4000:5173"
+
+  nginx:
+    image: nginx:stable-alpine
+    ports:
+      - "8081:80"
+    volumes:
+      - ./nginx/dev:/etc/nginx/conf.d:ro
+    depends_on:
+      - frontend
+      - backend
+
+
+volumes:
+  spotube-mongo:
+  node_modules_backend:
+  
