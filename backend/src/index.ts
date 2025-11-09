@@ -11,7 +11,7 @@ app.use(express.json());
 app.use(cookieParser());
 
 const port = 3000;
-const MONGO_URI = "mongodb://mongo:27017/soundify"
+const MONGO_URI = process.env.MONGO_URI || "mongodb://mongo:27017/soundify";
 
 mongoose.connect(MONGO_URI)
   .then(() => console.log("MongoDB connected"))
