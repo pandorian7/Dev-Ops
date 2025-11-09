@@ -4,7 +4,10 @@
 declare global {
 
   interface User {
-    username: string;
+    name: string;
+    email: string;
+    image: string;
+    token: string;
   }
   
   namespace App {

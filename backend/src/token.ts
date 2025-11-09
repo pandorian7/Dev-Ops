@@ -4,13 +4,13 @@ import type { User } from "./types";
 
 const JWT_SECRET = process.env.JWT_SECRET ?? "secret";
 
-export function encode(user: User) {
-    return jwt.sign(user, JWT_SECRET, { noTimestamp: true });
+export function encode(payload: object) {
+    return jwt.sign(payload, JWT_SECRET, { noTimestamp: true });
 }
 
 export function decode(token: string) {
   try {
-    return jwt.verify(token, JWT_SECRET) as User;
+    return jwt.verify(token, JWT_SECRET);
   } catch {
     return null;
   }
