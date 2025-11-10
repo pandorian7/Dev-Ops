@@ -11,7 +11,7 @@
           <!-- <Music size={48} color="white" /> -->
         </div>
         <h1 class="display-1 fw-bold text-white mb-4">
-          Your Music, <span class="gradient-text">Organized</span>
+          Your Music, <span class="gradient-text">Managed</span>
         </h1>
         <p class="lead mb-5 mx-auto" style="max-width: 600px;">
           Connect with Spotify and manage your music like never before. Create
