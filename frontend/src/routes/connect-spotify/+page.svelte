@@ -6,6 +6,11 @@
   const connectUrl = `https://accounts.spotify.com/authorize?response_type=code&client_id=${env.PUBLIC_SPOTIFY_CLIENT_ID}&scope=${env.PUBLIC_SPOTIFY_SCOPES}&redirect_uri=${env.PUBLIC_SPOTIFY_REDIRECT_URI}&state=${state}`;
 </script>
 
+<svelte:head>
+  <title>Connect to Spotify - Spotube</title>
+  <meta name="description" content="Connect your Spotify account to manage and organize your music with ease." />
+</svelte:head>
+
 <div class="connect-root d-flex align-items-center justify-content-center">
   <div class="connect-card text-center p-5 rounded shadow-lg">
     <div class="brand mb-3">
