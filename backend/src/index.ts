@@ -2,6 +2,8 @@ import express from "express";
 import mongoose from "mongoose";
 import cookieParser from "cookie-parser";
 import axios from 'axios'
+import rateLimit from 'express-rate-limit';
+import { doubleCsrf } from "csrf-csrf";
 
 import User from "./models/User";
 import UserProfile from "./models/UserProfile";
@@ -12,6 +14,41 @@ const app = express();
 
 app.use(express.json());
 app.use(cookieParser());
+
+// Rate limiting middleware
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per windowMs
+  message: "Too many requests from this IP, please try again later."
+});
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // Limit each IP to 5 auth requests per windowMs
+  message: "Too many authentication attempts, please try again later."
+});
+
+// CSRF protection
+const csrfProtection = doubleCsrf({
+  getSecret: () => process.env.CSRF_SECRET || "default-csrf-secret",
+  cookieName: "x-csrf-token",
+  cookieOptions: {
+    sameSite: "strict",
+    path: "/",
+    secure: process.env.NODE_ENV === "production",
+  },
+  size: 64,
+  ignoredMethods: ["GET", "HEAD", "OPTIONS"],
+  getSessionIdentifier: (req) => {
+    // Use a session identifier from cookies or generate one
+    return req.cookies['session-id'] || 'anonymous';
+  },
+});
+
+const doubleCsrfProtection = csrfProtection.doubleCsrfProtection;
+
+// Apply rate limiting to all API routes
+app.use('/api', apiLimiter);
 
 const port = 3000;
 const MONGO_URI = process.env.MONGO_URI || "mongodb://mongo:27017/soundify";
@@ -90,7 +127,7 @@ const authenticate = (req: any, res: any, next: any) => {
   next();
 };
 
-app.get("/oauth2", async (req, res) => {
+app.get("/oauth2", authLimiter, async (req, res) => {
   const { code } = req.query as { code?: string };
 
   if (!code) {
@@ -210,7 +247,7 @@ app.get("/api/spotify/search", authenticate, async (req: any, res) => {
 });
 
 // Create a new playlist
-app.post("/api/playlists", authenticate, async (req: any, res) => {
+app.post("/api/playlists", authenticate, doubleCsrfProtection, async (req: any, res) => {
   try {
     const { name, description, isPublic } = req.body;
     
@@ -267,7 +304,7 @@ app.get("/api/playlists/:id", authenticate, async (req: any, res) => {
 });
 
 // Update a playlist
-app.put("/api/playlists/:id", authenticate, async (req: any, res) => {
+app.put("/api/playlists/:id", authenticate, doubleCsrfProtection, async (req: any, res) => {
   try {
     const playlist = await Playlist.findById(req.params.id);
     
@@ -293,7 +330,7 @@ app.put("/api/playlists/:id", authenticate, async (req: any, res) => {
 });
 
 // Delete a playlist
-app.delete("/api/playlists/:id", authenticate, async (req: any, res) => {
+app.delete("/api/playlists/:id", authenticate, doubleCsrfProtection, async (req: any, res) => {
   try {
     const playlist = await Playlist.findById(req.params.id);
     
@@ -314,7 +351,7 @@ app.delete("/api/playlists/:id", authenticate, async (req: any, res) => {
 });
 
 // Add tracks to a playlist
-app.post("/api/playlists/:id/tracks", authenticate, async (req: any, res) => {
+app.post("/api/playlists/:id/tracks", authenticate, doubleCsrfProtection, async (req: any, res) => {
   try {
     const playlist = await Playlist.findById(req.params.id);
     
@@ -342,7 +379,7 @@ app.post("/api/playlists/:id/tracks", authenticate, async (req: any, res) => {
 });
 
 // Remove track from playlist
-app.delete("/api/playlists/:id/tracks/:trackId", authenticate, async (req: any, res) => {
+app.delete("/api/playlists/:id/tracks/:trackId", authenticate, doubleCsrfProtection, async (req: any, res) => {
   try {
     const playlist = await Playlist.findById(req.params.id);
     
@@ -404,7 +441,7 @@ app.get("/api/users/:email/playlists", authenticate, async (req: any, res) => {
 });
 
 // Like a playlist
-app.post("/api/playlists/:id/like", authenticate, async (req: any, res) => {
+app.post("/api/playlists/:id/like", authenticate, doubleCsrfProtection, async (req: any, res) => {
   try {
     const playlist = await Playlist.findById(req.params.id);
     
@@ -429,7 +466,7 @@ app.post("/api/playlists/:id/like", authenticate, async (req: any, res) => {
 });
 
 // Unlike a playlist
-app.delete("/api/playlists/:id/like", authenticate, async (req: any, res) => {
+app.delete("/api/playlists/:id/like", authenticate, doubleCsrfProtection, async (req: any, res) => {
   try {
     const playlist = await Playlist.findById(req.params.id);
     

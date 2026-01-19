@@ -67,7 +67,7 @@ export const playlists = {
   },
   
   async like(id: string) {
-    const res = await axios.post(`${API_URL}/api/playlists/${id}/like`);
+    const res = await axios.post(`${API_URL}/api/playlists/${id}/like`, {});
     return res.data;
   },
   
