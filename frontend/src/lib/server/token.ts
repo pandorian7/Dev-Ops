@@ -1,13 +1,13 @@
 import jwt from "jsonwebtoken";
-import { JWT_SECRET } from "$env/static/private";
+import { env } from "$env/dynamic/private";
 
 export function encode(user: User) {
-    return jwt.sign(user, JWT_SECRET, { expiresIn: "7d" });
+    return jwt.sign(user, env.JWT_SECRET as string, { expiresIn: "7d" });
 }
 
 export function decode(token: string) {
   try {
-    return jwt.verify(token, JWT_SECRET) as User;
+    return jwt.verify(token, env.JWT_SECRET as string) as User;
   } catch {
     return null;
   }

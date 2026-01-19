@@ -339,18 +339,10 @@
   /* Slightly darken the card body so rows feel distinct from page background */
   .tracks-card{ background: linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0.005)); }
 
-  /* Track row actions and play state */
-  .row-actions-cell{ width:72px; }
-  .row-actions{ display:inline-flex; gap:0.5rem; align-items:center; justify-content:flex-end; opacity:0; transform:translateX(6px); transition: all .12s ease; }
-  .track-row:hover .row-actions{ opacity:1; transform:translateX(0); }
-
-  .play-btn{ background:var(--accent); color:#081018; border-radius:8px; width:36px; height:36px; display:inline-flex; align-items:center; justify-content:center; border:0; }
-  .play-btn svg{ display:block; }
-
   .track-row.playing{ background: linear-gradient(90deg, rgba(29,185,84,0.06), rgba(29,185,84,0.02)); }
 
   .track-title{ color:#fff; font-weight:600; }
-  .track-sub{ font-size:0.8rem; color:var(--muted); }
+  .track-placeholder{ width:48px; height:48px; background:rgba(255,255,255,0.05); border-radius:4px; }
 
   /* Responsive tweaks */
   @media (max-width: 768px){
