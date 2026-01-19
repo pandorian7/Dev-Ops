@@ -20,6 +20,9 @@
       if (searchType === 'users') {
         const result = await users.search(searchQuery);
         searchResults = result.users || [];
+      } else if (searchType === 'playlists') {
+        const result = await playlists.search(searchQuery);
+        searchResults = result.playlists || [];
       }
     } catch (err) {
       console.error('Search failed:', err);
@@ -125,6 +128,44 @@
                     >
                       View Playlists
                     </button>
+                  </div>
+                </div>
+              {/each}
+            </div>
+          </div>
+        {:else if searchResults.length > 0 && searchType === 'playlists'}
+          <div class="search-results">
+            <h5 class="text-white mb-3">Playlists</h5>
+            <div class="row g-3">
+              {#each searchResults as playlist}
+                <div class="col-md-6 col-lg-4">
+                  <div class="playlist-card p-3 rounded">
+                    <h6 class="text-white">{playlist.name}</h6>
+                    {#if playlist.description}
+                      <p class="text-muted small">{playlist.description}</p>
+                    {/if}
+                    <p class="text-muted small">by {playlist.owner}</p>
+                    <div class="d-flex justify-content-between align-items-center">
+                      <span class="text-muted small">{playlist.tracks?.length || 0} tracks</span>
+                      <div class="d-flex gap-2">
+                        <span class="text-muted small">❤️ {playlist.likes?.length || 0}</span>
+                        {#if isLiked(playlist)}
+                          <button 
+                            class="btn btn-sm btn-outline-danger"
+                            on:click={() => unlikePlaylist(playlist._id)}
+                          >
+                            Unlike
+                          </button>
+                        {:else}
+                          <button 
+                            class="btn btn-sm btn-outline-light"
+                            on:click={() => likePlaylist(playlist._id)}
+                          >
+                            Like
+                          </button>
+                        {/if}
+                      </div>
+                    </div>
                   </div>
                 </div>
               {/each}

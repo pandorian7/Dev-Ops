@@ -355,7 +355,7 @@ app.delete("/api/playlists/:id/tracks/:trackId", authenticate, async (req: any, 
     }
 
     playlist.tracks = playlist.tracks.filter(
-      (track: any) => track.spotifyId !== req.params.trackId
+      (track) => track.spotifyId !== req.params.trackId
     );
     await playlist.save();
     
@@ -447,17 +447,47 @@ app.delete("/api/playlists/:id/like", authenticate, async (req: any, res) => {
   }
 });
 
-// Get public playlists (discover)
+// Get public playlists (discover) - sorted by number of likes
 app.get("/api/discover/playlists", authenticate, async (req: any, res) => {
   try {
-    const playlists = await Playlist.find({ isPublic: true })
-      .sort({ likes: -1, updatedAt: -1 })
-      .limit(50);
+    const playlists = await Playlist.aggregate([
+      { $match: { isPublic: true } },
+      {
+        $addFields: {
+          likeCount: { $size: "$likes" }
+        }
+      },
+      { $sort: { likeCount: -1, updatedAt: -1 } },
+      { $limit: 50 }
+    ]);
     
     res.json({ playlists });
   } catch (err: any) {
     console.error("Failed to fetch playlists:", err.message);
     res.status(500).json({ message: "Failed to fetch playlists" });
+  }
+});
+
+// Search playlists by name
+app.get("/api/playlists/search", authenticate, async (req: any, res) => {
+  try {
+    const { q } = req.query;
+    if (!q) {
+      return res.status(400).json({ message: "Search query required" });
+    }
+
+    const playlists = await Playlist.find({
+      isPublic: true,
+      $or: [
+        { name: { $regex: q, $options: 'i' } },
+        { description: { $regex: q, $options: 'i' } }
+      ]
+    }).limit(20);
+    
+    res.json({ playlists });
+  } catch (err: any) {
+    console.error("Playlist search failed:", err.message);
+    res.status(500).json({ message: "Playlist search failed" });
   }
 });
 

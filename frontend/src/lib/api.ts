@@ -1,6 +1,8 @@
 import axios from "axios";
 
-const API_URL = process.env.NODE_ENV === 'production' ? '' : 'http://localhost:3000';
+// For client-side, API requests are made to the same origin
+// The backend is proxied through the SvelteKit server
+const API_URL = '';
 
 async function register(username: string, password: string) {
   const res = await axios.post(`${API_URL}/api/register`, { username, password });
@@ -76,6 +78,11 @@ export const playlists = {
   
   async getDiscover() {
     const res = await axios.get(`${API_URL}/api/discover/playlists`);
+    return res.data;
+  },
+  
+  async search(query: string) {
+    const res = await axios.get(`${API_URL}/api/playlists/search`, { params: { q: query } });
     return res.data;
   }
 };
