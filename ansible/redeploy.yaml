@@ -1,0 +1,62 @@
+- name: Redeploy Docker container
+  hosts: app
+  become: false
+
+  collections:
+    - community.docker
+
+  tasks:
+    - name: Pull latest Frontend Docker image
+      docker_image:
+        name: pandorian7/devops-fe
+        tag: latest
+        source: pull
+        force_source: true
+
+    - name: Pull latest Backend Docker image
+      docker_image:
+        name: pandorian7/devops-be
+        tag: latest
+        source: pull
+        force_source: true
+
+    - name: Stop and remove existing frontend container
+      docker_container:
+        name: devops-fe-container
+        state: absent
+
+    - name: Stop and remove existing backend container
+      docker_container:
+        name: devops-be-container
+        state: absent
+
+    - name: Run updated frontend container
+      docker_container:
+        name: devops-fe-container
+        image: pandorian7/devops-fe:latest
+        state: started
+        restart_policy: always
+        ports:
+          - "3000:3000"
+        env:
+          JWT_SECRET: 
+          PUBLIC_SPOTIFY_CLIENT_ID: 
+          PUBLIC_SPOTIFY_SCOPES: 
+          PUBLIC_SPOTIFY_REDIRECT_URI: https://spotube/api/oauth2
+          BACKEND_INTERNAL_URL: http://localhost:5000
+    - name: Run updated backend container
+      docker_container:
+        name: devops-be-container
+        image: pandorian7/devops-be:latest
+        state: started
+        restart_policy: always
+        ports:
+          - "5000:3000"
+        env:
+          JWT_SECRET: 
+          MONGO_URI: 
+          PUBLIC_SPOTIFY_CLIENT_ID: 
+          PUBLIC_SPOTIFY_CLIENT_SECRET: 
+          PUBLIC_SPOTIFY_SCOPES: user-library-read user-read-email user-read-private
+          PUBLIC_SPOTIFY_REDIRECT_URI: https://spotube/api/oauth2
+          TRUST_PROXY: "true"
