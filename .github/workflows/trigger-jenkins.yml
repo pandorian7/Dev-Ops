@@ -12,7 +12,6 @@ jobs:
     steps:
       - name: Trigger Jenkins job
         env:
-          # JENKINS_URL: ${{ vars.JENKINS_URL }}
           JENKINS_ADDR: ${{ vars.JENKINS_ADDR }}
           JENKINS_PORT: ${{ vars.JENKINS_PORT }}
           JENKINS_JOB: ${{ vars.JENKINS_JOB }}
