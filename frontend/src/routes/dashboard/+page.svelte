@@ -1,17 +1,17 @@
 <script lang="ts">
-  import { playlists, spotify } from '$lib/api';
+  import { playlists, spotify, users } from '$lib/api';
   import { onMount } from 'svelte';
-  
-  // SvelteKit page data
-  export let data: any;
 
-  const tag = data?.user?.name ?? data?.user?.email ?? 'Guest';
-  
-  let savedTracks = data?.savedTracks || [];
-  let savedTracksTotal = data?.savedTracksTotal ?? savedTracks.length;
-  let savedTracksLimit = data?.savedTracksLimit ?? 50;
-  let savedTracksOffset = data?.savedTracksOffset ?? 0;
-  let userPlaylists = data?.playlists || [];
+  let user: User | null = null;
+  let isBootstrapping = true;
+
+  $: tag = user?.name ?? user?.email ?? 'Guest';
+
+  let savedTracks: any[] = [];
+  let savedTracksTotal = 0;
+  let savedTracksLimit = 50;
+  let savedTracksOffset = 0;
+  let userPlaylists: any[] = [];
   let currentPlaylist: any = null;
   let currentTracks: any[] = savedTracks;
   let searchQuery = '';
@@ -30,6 +30,39 @@
   function togglePlay(i: number) {
     playing = playing === i ? -1 : i;
   }
+
+  async function bootstrap() {
+    isBootstrapping = true;
+    try {
+      const [meRes, playlistsRes, tracksRes] = await Promise.all([
+        users.me(),
+        playlists.getAll(),
+        spotify.getSavedTracks({ limit: savedTracksLimit, offset: savedTracksOffset })
+      ]);
+
+      user = meRes?.user ?? null;
+      userPlaylists = playlistsRes?.playlists ?? [];
+
+      savedTracks = tracksRes?.tracks ?? [];
+      savedTracksTotal = tracksRes?.total ?? savedTracks.length;
+      savedTracksLimit = tracksRes?.limit ?? savedTracksLimit;
+      savedTracksOffset = tracksRes?.offset ?? savedTracksOffset;
+      currentTracks = savedTracks;
+    } catch (err: any) {
+      const status = err?.response?.status;
+      if (status === 401) {
+        window.location.href = '/connect-spotify';
+        return;
+      }
+      console.error('Dashboard bootstrap failed:', err);
+    } finally {
+      isBootstrapping = false;
+    }
+  }
+
+  onMount(() => {
+    bootstrap();
+  });
   
   async function handleSearch() {
     if (!searchQuery.trim()) {
@@ -209,8 +242,8 @@
       </div>
       <div class="user-actions d-flex align-items-center">
         <a href="/discover" class="btn btn-sm btn-discover me-3">Discover</a>
-        {#if data?.user?.image}
-          <img src={data.user.image} alt={tag} class="avatar me-2 rounded" width="36" height="36" />
+        {#if user?.image}
+          <img src={user.image} alt={tag} class="avatar me-2 rounded" width="36" height="36" />
         {:else}
           <div class="avatar me-2">{tag ? tag.charAt(0).toUpperCase() : 'G'}</div>
         {/if}

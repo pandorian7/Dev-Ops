@@ -215,6 +215,15 @@ app.get("/oauth2", authLimiter, async (req, res) => {
   }
 });
 
+// Return the current authenticated user (for CSR clients)
+const getMeHandler = (req: any, res: any) => {
+  const { name, email, image } = req.user ?? {};
+  res.json({ user: { name, email, image } });
+};
+
+app.get("/me", authenticate, getMeHandler);
+app.get("/api/me", authenticate, getMeHandler);
+
 // Get user's Spotify saved tracks (paged)
 // Spotify endpoint supports limit/offset and returns a `total` count.
 const getSavedTracksHandler = async (req: any, res: any) => {

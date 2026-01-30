@@ -115,6 +115,11 @@ export const playlists = {
 
 // Users API
 export const users = {
+  async me() {
+    const res = await api.get(`/api/me`);
+    return res.data;
+  },
+
   async search(query: string) {
     const res = await api.get(`/api/users/search`, { params: { q: query } });
     return res.data;
