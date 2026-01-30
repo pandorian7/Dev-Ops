@@ -8,6 +8,9 @@
   const tag = data?.user?.name ?? data?.user?.email ?? 'Guest';
   
   let savedTracks = data?.savedTracks || [];
+  let savedTracksTotal = data?.savedTracksTotal ?? savedTracks.length;
+  let savedTracksLimit = data?.savedTracksLimit ?? 50;
+  let savedTracksOffset = data?.savedTracksOffset ?? 0;
   let userPlaylists = data?.playlists || [];
   let currentPlaylist: any = null;
   let currentTracks: any[] = savedTracks;
@@ -17,6 +20,10 @@
   let showCreatePlaylist = false;
   let newPlaylistName = '';
   let newPlaylistDescription = '';
+  let isLoadingSavedTracks = false;
+
+  // Per-track UI state for the "Add to playlist" dropdown
+  let addTargetByTrackId: Record<string, string> = {};
   
   // Local UI state: which track index is 'playing'
   let playing: number = -1;
@@ -38,6 +45,9 @@
     } catch (err) {
       console.error('Search failed:', err);
       searchResults = [];
+    } finally {
+      // We keep displaying the search table when there is a query.
+      isSearching = true;
     }
   }
   
@@ -57,21 +67,112 @@
   
   async function addTrackToPlaylist(track: any, playlistId: string) {
     try {
-      await playlists.addTrack(playlistId, track);
+      const result = await playlists.addTrack(playlistId, track);
+      const updatedPlaylist = result?.playlist;
+
+      if (updatedPlaylist?._id) {
+        userPlaylists = userPlaylists.map((p: any) => (p._id === updatedPlaylist._id ? updatedPlaylist : p));
+      }
+
       // Refresh playlist if it's currently displayed
-      if (currentPlaylist?._id === playlistId) {
-        const updated = await playlists.getById(playlistId);
-        currentPlaylist = updated.playlist;
-        currentTracks = currentPlaylist.tracks;
+      if (currentPlaylist?._id === playlistId && updatedPlaylist) {
+        currentPlaylist = updatedPlaylist;
+        currentTracks = updatedPlaylist.tracks || [];
       }
     } catch (err) {
       console.error('Failed to add track:', err);
     }
   }
+
+  async function deletePlaylist(playlistId: string) {
+    const playlist = userPlaylists.find((p: any) => p._id === playlistId);
+    const name = playlist?.name ?? 'this playlist';
+    if (!confirm(`Delete ${name}? This cannot be undone.`)) return;
+
+    try {
+      await playlists.delete(playlistId);
+      userPlaylists = userPlaylists.filter((p: any) => p._id !== playlistId);
+
+      if (currentPlaylist?._id === playlistId) {
+        viewSavedTracks();
+      }
+    } catch (err) {
+      console.error('Failed to delete playlist:', err);
+    }
+  }
+
+  async function loadSavedTracksPage(newOffset: number) {
+    isLoadingSavedTracks = true;
+    try {
+      const result = await spotify.getSavedTracks({ limit: savedTracksLimit, offset: newOffset });
+      savedTracks = result.tracks || [];
+      savedTracksTotal = result.total ?? savedTracksTotal;
+      savedTracksLimit = result.limit ?? savedTracksLimit;
+      savedTracksOffset = result.offset ?? newOffset;
+      if (!currentPlaylist) {
+        currentTracks = savedTracks;
+      }
+    } catch (err) {
+      console.error('Failed to load saved tracks page:', err);
+    } finally {
+      isLoadingSavedTracks = false;
+    }
+  }
+
+  async function removeTrackFromCurrentPlaylist(trackId: string) {
+    if (!currentPlaylist?._id) return;
+    if (!trackId) return;
+
+    try {
+      const result = await playlists.removeTrack(currentPlaylist._id, trackId);
+      const updatedPlaylist = result?.playlist;
+      if (updatedPlaylist?._id) {
+        currentPlaylist = updatedPlaylist;
+        currentTracks = updatedPlaylist.tracks || [];
+        userPlaylists = userPlaylists.map((p: any) => (p._id === updatedPlaylist._id ? updatedPlaylist : p));
+      } else {
+        // Fallback: optimistic update
+        currentTracks = currentTracks.filter((t: any) => t.spotifyId !== trackId);
+      }
+    } catch (err) {
+      console.error('Failed to remove track:', err);
+    }
+  }
+
+  function getTrackKey(track: any, index: number) {
+    return track?.spotifyId || track?._id || `${track?.name ?? 'track'}:${index}`;
+  }
+
+  function getDefaultAddTarget() {
+    return currentPlaylist?._id || userPlaylists?.[0]?._id || '';
+  }
+
+  function getAddTargetFor(track: any, index: number) {
+    const key = getTrackKey(track, index);
+    return addTargetByTrackId[key] || getDefaultAddTarget();
+  }
+
+  function setAddTargetFor(track: any, index: number, playlistId: string) {
+    const key = getTrackKey(track, index);
+    addTargetByTrackId = { ...addTargetByTrackId, [key]: playlistId };
+  }
   
-  function selectPlaylist(playlist: any) {
-    currentPlaylist = playlist;
-    currentTracks = playlist.tracks || [];
+  async function selectPlaylist(playlist: any) {
+    // Always fetch latest playlist so newly-added tracks appear reliably.
+    try {
+      const latest = await playlists.getById(playlist._id);
+      if (latest?.playlist) {
+        currentPlaylist = latest.playlist;
+        currentTracks = latest.playlist.tracks || [];
+        userPlaylists = userPlaylists.map((p: any) => (p._id === latest.playlist._id ? latest.playlist : p));
+      } else {
+        currentPlaylist = playlist;
+        currentTracks = playlist.tracks || [];
+      }
+    } catch {
+      currentPlaylist = playlist;
+      currentTracks = playlist.tracks || [];
+    }
     searchResults = [];
     searchQuery = '';
     isSearching = false;
@@ -84,6 +185,10 @@
     searchQuery = '';
     isSearching = false;
   }
+
+  $: isViewingSavedTracks = !currentPlaylist && !isSearching;
+  $: savedTracksPage = Math.floor(savedTracksOffset / savedTracksLimit) + 1;
+  $: savedTracksTotalPages = Math.max(1, Math.ceil(savedTracksTotal / savedTracksLimit));
   
   function formatDuration(ms: number) {
     const seconds = Math.floor(ms / 1000);
@@ -147,18 +252,27 @@
               on:click={viewSavedTracks}
             >
               <span class="me-2">♥</span>
-              Saved Tracks ({savedTracks.length})
+              Saved Tracks ({savedTracksTotal})
             </button>
           </li>
           {#each userPlaylists as playlist}
             <li class="nav-item mb-2">
-              <button
-                class="nav-link d-flex align-items-center text-white w-100 {currentPlaylist?._id === playlist._id ? 'active' : ''}"
-                on:click={() => selectPlaylist(playlist)}
-              >
-                <span class="me-2">📁</span>
-                {playlist.name}
-              </button>
+              <div class="d-flex align-items-center gap-2">
+                <button
+                  class="nav-link d-flex align-items-center text-white w-100 {currentPlaylist?._id === playlist._id ? 'active' : ''}"
+                  on:click={() => selectPlaylist(playlist)}
+                >
+                  <span class="me-2">📁</span>
+                  {playlist.name}
+                </button>
+                <button
+                  class="btn btn-sm btn-outline-danger"
+                  title="Delete playlist"
+                  on:click={() => deletePlaylist(playlist._id)}
+                >
+                  🗑️
+                </button>
+              </div>
             </li>
           {/each}
         </ul>
@@ -194,6 +308,7 @@
                   <th class="col-3">Artist</th>
                   <th class="col-2 d-none d-sm-table-cell">Album</th>
                   <th class="col-1 text-end">Duration</th>
+                  <th class="col-2">Add</th>
                 </tr>
               </thead>
               <tbody>
@@ -213,6 +328,31 @@
                     <td class="align-middle">{track.artist}</td>
                     <td class="align-middle d-none d-sm-table-cell">{track.album}</td>
                     <td class="align-middle text-end">{formatDuration(track.duration)}</td>
+                    <td class="align-middle">
+                      <div class="d-flex gap-2 add-controls">
+                        <select
+                          class="form-select form-select-sm add-select"
+                          value={getAddTargetFor(track, i)}
+                          on:change={(e) => setAddTargetFor(track, i, (e.currentTarget as HTMLSelectElement).value)}
+                          disabled={userPlaylists.length === 0}
+                        >
+                          {#if userPlaylists.length === 0}
+                            <option value="">Create a playlist first</option>
+                          {:else}
+                            {#each userPlaylists as p}
+                              <option value={p._id}>{p.name}</option>
+                            {/each}
+                          {/if}
+                        </select>
+                        <button
+                          class="btn btn-sm btn-primary"
+                          disabled={!getAddTargetFor(track, i)}
+                          on:click={() => addTrackToPlaylist(track, getAddTargetFor(track, i))}
+                        >
+                          +
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 {/each}
               </tbody>
@@ -226,12 +366,16 @@
                   <th class="col-3">Artist</th>
                   <th class="col-2 d-none d-sm-table-cell">Album</th>
                   <th class="col-1 text-end">Duration</th>
+                  <th class="col-2">Add</th>
+                  {#if currentPlaylist}
+                    <th class="col-1">Remove</th>
+                  {/if}
                 </tr>
               </thead>
               <tbody>
                 {#each currentTracks as track, i}
                   <tr class="track-row {playing === i ? 'playing' : ''}">
-                    <td class="align-middle">{i + 1}</td>
+                    <td class="align-middle">{(isViewingSavedTracks ? savedTracksOffset : 0) + i + 1}</td>
                     <td class="d-flex align-items-center">
                       {#if track.imageUrl}
                         <img src={track.imageUrl} alt={track.name} width="48" height="48" class="me-3 rounded" />
@@ -245,10 +389,70 @@
                     <td class="align-middle">{track.artist}</td>
                     <td class="align-middle d-none d-sm-table-cell">{track.album || 'N/A'}</td>
                     <td class="align-middle text-end">{track.duration ? formatDuration(track.duration) : 'N/A'}</td>
+                    <td class="align-middle">
+                      <div class="d-flex gap-2 add-controls">
+                        <select
+                          class="form-select form-select-sm add-select"
+                          value={getAddTargetFor(track, i)}
+                          on:change={(e) => setAddTargetFor(track, i, (e.currentTarget as HTMLSelectElement).value)}
+                          disabled={userPlaylists.length === 0}
+                        >
+                          {#if userPlaylists.length === 0}
+                            <option value="">Create a playlist first</option>
+                          {:else}
+                            {#each userPlaylists as p}
+                              <option value={p._id}>{p.name}</option>
+                            {/each}
+                          {/if}
+                        </select>
+                        <button
+                          class="btn btn-sm btn-primary"
+                          disabled={!getAddTargetFor(track, i)}
+                          on:click={() => addTrackToPlaylist(track, getAddTargetFor(track, i))}
+                        >
+                          +
+                        </button>
+                      </div>
+                    </td>
+                    {#if currentPlaylist}
+                      <td class="align-middle">
+                        <button
+                          class="btn btn-sm btn-outline-danger"
+                          title="Remove from playlist"
+                          on:click={() => removeTrackFromCurrentPlaylist(track.spotifyId)}
+                        >
+                          🗑️
+                        </button>
+                      </td>
+                    {/if}
                   </tr>
                 {/each}
               </tbody>
             </table>
+
+            {#if isViewingSavedTracks && savedTracksTotal > savedTracksLimit}
+              <div class="d-flex align-items-center justify-content-between mt-3">
+                <div class="text-muted small">
+                  Page {savedTracksPage} of {savedTracksTotalPages}
+                </div>
+                <div class="d-flex gap-2">
+                  <button
+                    class="btn btn-sm btn-outline-light"
+                    disabled={isLoadingSavedTracks || savedTracksOffset <= 0}
+                    on:click={() => loadSavedTracksPage(Math.max(0, savedTracksOffset - savedTracksLimit))}
+                  >
+                    Prev
+                  </button>
+                  <button
+                    class="btn btn-sm btn-outline-light"
+                    disabled={isLoadingSavedTracks || savedTracksOffset + savedTracksLimit >= savedTracksTotal}
+                    on:click={() => loadSavedTracksPage(savedTracksOffset + savedTracksLimit)}
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            {/if}
           {:else}
             <p class="text-muted text-center py-5">
               {#if isSearching}
@@ -343,6 +547,15 @@
 
   .track-title{ color:#fff; font-weight:600; }
   .track-placeholder{ width:48px; height:48px; background:rgba(255,255,255,0.05); border-radius:4px; }
+
+  .add-controls{ align-items:center; flex-wrap:nowrap; min-width: 320px; }
+  .add-select{ min-width: 260px; }
+
+  /* On narrow screens, let the controls shrink instead of overflowing */
+  @media (max-width: 992px){
+    .add-controls{ min-width: 240px; }
+    .add-select{ min-width: 180px; }
+  }
 
   /* Responsive tweaks */
   @media (max-width: 768px){

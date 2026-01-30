@@ -12,6 +12,27 @@ import { encode, decode } from "./token";
 
 const app = express();
 
+// When running behind a reverse proxy (nginx), enable trust proxy so that
+// Express / express-rate-limit can correctly use X-Forwarded-* headers.
+// Configure via TRUST_PROXY (e.g. "1", "true", or a hop count like "2").
+const trustProxyEnv = process.env.TRUST_PROXY;
+if (typeof trustProxyEnv === "string" && trustProxyEnv.length > 0) {
+  const normalized = trustProxyEnv.trim().toLowerCase();
+  if (["0", "false", "off", "no"].includes(normalized)) {
+    app.set("trust proxy", false);
+  } else if (["1", "true", "on", "yes"].includes(normalized)) {
+    app.set("trust proxy", 1);
+  } else {
+    const asNumber = Number(normalized);
+    if (Number.isFinite(asNumber)) {
+      app.set("trust proxy", asNumber);
+    } else {
+      // Allow Express' string formats (e.g. "loopback", "uniquelocal").
+      app.set("trust proxy", trustProxyEnv);
+    }
+  }
+}
+
 app.use(express.json());
 app.use(cookieParser());
 
@@ -36,19 +57,22 @@ const csrfProtection = doubleCsrf({
     sameSite: "strict",
     path: "/",
     secure: process.env.NODE_ENV === "production",
+    httpOnly: true,
   },
   size: 64,
   ignoredMethods: ["GET", "HEAD", "OPTIONS"],
   getSessionIdentifier: (req) => {
-    // Use a session identifier from cookies or generate one
-    return req.cookies['session-id'] || 'anonymous';
+    // Use a stable per-user identifier (JWT cookie) to bind CSRF tokens.
+    return req.cookies.token || "anonymous";
   },
 });
 
 const doubleCsrfProtection = csrfProtection.doubleCsrfProtection;
 
-// Apply rate limiting to all API routes
-app.use('/api', apiLimiter);
+// Apply rate limiting to backend routes.
+// Note: nginx rewrites /api/* to /* before proxying, so the backend typically
+// does not see the /api prefix.
+app.use(apiLimiter);
 
 const port = 3000;
 const MONGO_URI = process.env.MONGO_URI || "mongodb://mongo:27017/soundify";
@@ -127,6 +151,14 @@ const authenticate = (req: any, res: any, next: any) => {
   next();
 };
 
+// Provide CSRF token + cookie for SPA clients.
+// Frontend should call /api/csrf-token and include the returned value in the
+// `x-csrf-token` header for mutating requests.
+app.get("/csrf-token", authenticate, (req, res) => {
+  const csrfToken = csrfProtection.generateCsrfToken(req, res);
+  res.json({ csrfToken });
+});
+
 app.get("/oauth2", authLimiter, async (req, res) => {
   const { code } = req.query as { code?: string };
 
@@ -183,14 +215,23 @@ app.get("/oauth2", authLimiter, async (req, res) => {
   }
 });
 
-// Get user's Spotify saved tracks
-app.get("/api/spotify/saved-tracks", authenticate, async (req: any, res) => {
+// Get user's Spotify saved tracks (paged)
+// Spotify endpoint supports limit/offset and returns a `total` count.
+const getSavedTracksHandler = async (req: any, res: any) => {
   try {
     const { token } = req.user;
+    const rawLimit = typeof req.query.limit === "string" ? req.query.limit : undefined;
+    const rawOffset = typeof req.query.offset === "string" ? req.query.offset : undefined;
+
+    const limit = Math.min(Math.max(Number.parseInt(rawLimit ?? "50", 10) || 50, 1), 50);
+    const offset = Math.max(Number.parseInt(rawOffset ?? "0", 10) || 0, 0);
+
     const response = await axios.get("https://api.spotify.com/v1/me/tracks", {
       headers: { Authorization: `Bearer ${token}` },
-      params: { limit: 50 }
+      params: { limit, offset }
     });
+
+    const total = typeof response.data?.total === "number" ? response.data.total : 0;
 
     const tracks = response.data.items.map((item: any) => ({
       spotifyId: item.track.id,
@@ -202,22 +243,18 @@ app.get("/api/spotify/saved-tracks", authenticate, async (req: any, res) => {
       savedAt: item.added_at
     }));
 
-    // Save to user profile
-    await UserProfile.findOneAndUpdate(
-      { email: req.user.email },
-      { savedTracks: tracks },
-      { upsert: true }
-    );
-
-    res.json({ tracks });
+    res.json({ tracks, total, limit, offset });
   } catch (err: any) {
     console.error("Failed to fetch saved tracks:", err.response?.data || err.message);
     res.status(500).json({ message: "Failed to fetch saved tracks" });
   }
-});
+};
+
+app.get("/spotify/saved-tracks", authenticate, getSavedTracksHandler);
+app.get("/api/spotify/saved-tracks", authenticate, getSavedTracksHandler);
 
 // Search songs on Spotify
-app.get("/api/spotify/search", authenticate, async (req: any, res) => {
+const searchSpotifyHandler = async (req: any, res: any) => {
   try {
     const { q } = req.query;
     if (!q) {
@@ -244,10 +281,13 @@ app.get("/api/spotify/search", authenticate, async (req: any, res) => {
     console.error("Search failed:", err.response?.data || err.message);
     res.status(500).json({ message: "Search failed" });
   }
-});
+};
+
+app.get("/spotify/search", authenticate, searchSpotifyHandler);
+app.get("/api/spotify/search", authenticate, searchSpotifyHandler);
 
 // Create a new playlist
-app.post("/api/playlists", authenticate, doubleCsrfProtection, async (req: any, res) => {
+app.post("/playlists", authenticate, doubleCsrfProtection, async (req: any, res) => {
   try {
     const { name, description, isPublic } = req.body;
     
@@ -272,7 +312,7 @@ app.post("/api/playlists", authenticate, doubleCsrfProtection, async (req: any, 
 });
 
 // Get user's playlists
-app.get("/api/playlists", authenticate, async (req: any, res) => {
+app.get("/playlists", authenticate, async (req: any, res) => {
   try {
     const playlists = await Playlist.find({ owner: req.user.email }).sort({ updatedAt: -1 });
     res.json({ playlists });
@@ -283,7 +323,7 @@ app.get("/api/playlists", authenticate, async (req: any, res) => {
 });
 
 // Get a specific playlist
-app.get("/api/playlists/:id", authenticate, async (req: any, res) => {
+app.get("/playlists/:id", authenticate, async (req: any, res) => {
   try {
     const playlist = await Playlist.findById(req.params.id);
     
@@ -304,7 +344,7 @@ app.get("/api/playlists/:id", authenticate, async (req: any, res) => {
 });
 
 // Update a playlist
-app.put("/api/playlists/:id", authenticate, doubleCsrfProtection, async (req: any, res) => {
+app.put("/playlists/:id", authenticate, doubleCsrfProtection, async (req: any, res) => {
   try {
     const playlist = await Playlist.findById(req.params.id);
     
@@ -330,7 +370,7 @@ app.put("/api/playlists/:id", authenticate, doubleCsrfProtection, async (req: an
 });
 
 // Delete a playlist
-app.delete("/api/playlists/:id", authenticate, doubleCsrfProtection, async (req: any, res) => {
+app.delete("/playlists/:id", authenticate, doubleCsrfProtection, async (req: any, res) => {
   try {
     const playlist = await Playlist.findById(req.params.id);
     
@@ -351,7 +391,7 @@ app.delete("/api/playlists/:id", authenticate, doubleCsrfProtection, async (req:
 });
 
 // Add tracks to a playlist
-app.post("/api/playlists/:id/tracks", authenticate, doubleCsrfProtection, async (req: any, res) => {
+app.post("/playlists/:id/tracks", authenticate, doubleCsrfProtection, async (req: any, res) => {
   try {
     const playlist = await Playlist.findById(req.params.id);
     
@@ -379,7 +419,7 @@ app.post("/api/playlists/:id/tracks", authenticate, doubleCsrfProtection, async 
 });
 
 // Remove track from playlist
-app.delete("/api/playlists/:id/tracks/:trackId", authenticate, doubleCsrfProtection, async (req: any, res) => {
+app.delete("/playlists/:id/tracks/:trackId", authenticate, doubleCsrfProtection, async (req: any, res) => {
   try {
     const playlist = await Playlist.findById(req.params.id);
     
@@ -404,7 +444,7 @@ app.delete("/api/playlists/:id/tracks/:trackId", authenticate, doubleCsrfProtect
 });
 
 // Search users
-app.get("/api/users/search", authenticate, async (req: any, res) => {
+app.get("/users/search", authenticate, async (req: any, res) => {
   try {
     const { q } = req.query;
     if (!q) {
@@ -426,7 +466,7 @@ app.get("/api/users/search", authenticate, async (req: any, res) => {
 });
 
 // Get user's public playlists
-app.get("/api/users/:email/playlists", authenticate, async (req: any, res) => {
+app.get("/users/:email/playlists", authenticate, async (req: any, res) => {
   try {
     const playlists = await Playlist.find({ 
       owner: req.params.email, 
@@ -441,7 +481,7 @@ app.get("/api/users/:email/playlists", authenticate, async (req: any, res) => {
 });
 
 // Like a playlist
-app.post("/api/playlists/:id/like", authenticate, doubleCsrfProtection, async (req: any, res) => {
+app.post("/playlists/:id/like", authenticate, doubleCsrfProtection, async (req: any, res) => {
   try {
     const playlist = await Playlist.findById(req.params.id);
     
@@ -466,7 +506,7 @@ app.post("/api/playlists/:id/like", authenticate, doubleCsrfProtection, async (r
 });
 
 // Unlike a playlist
-app.delete("/api/playlists/:id/like", authenticate, doubleCsrfProtection, async (req: any, res) => {
+app.delete("/playlists/:id/like", authenticate, doubleCsrfProtection, async (req: any, res) => {
   try {
     const playlist = await Playlist.findById(req.params.id);
     
@@ -485,7 +525,7 @@ app.delete("/api/playlists/:id/like", authenticate, doubleCsrfProtection, async 
 });
 
 // Get public playlists (discover) - sorted by number of likes
-app.get("/api/discover/playlists", authenticate, async (req: any, res) => {
+app.get("/discover/playlists", authenticate, async (req: any, res) => {
   try {
     const playlists = await Playlist.aggregate([
       { $match: { isPublic: true } },
@@ -506,7 +546,7 @@ app.get("/api/discover/playlists", authenticate, async (req: any, res) => {
 });
 
 // Search playlists by name
-app.get("/api/playlists/search", authenticate, async (req: any, res) => {
+app.get("/playlists/search", authenticate, async (req: any, res) => {
   try {
     const { q } = req.query;
     if (!q) {
