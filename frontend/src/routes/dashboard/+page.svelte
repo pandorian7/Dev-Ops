@@ -325,7 +325,7 @@
           />
         </div>
         
-        <h1 class="mb-4 mt-1">{currentPlaylist ? currentPlaylist.name : 'Saved Tracks'}</h1>
+        <h1 class="mb-4 mt-1">{currentPlaylist ? currentPlaylist.name : 'Yasith Nethmina Piyarathne'}</h1>
         {#if currentPlaylist?.description}
           <p class="text-muted">{currentPlaylist.description}</p>
         {/if}
